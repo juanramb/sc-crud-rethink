@@ -20,10 +20,64 @@ var SCCRUDRethink = function (worker, options) {
   if (!this.options.defaultPageSize) {
     this.options.defaultPageSize = 10;
   }
-
-  Object.keys(this.schema).forEach(function (modelName) {
-    var modelSchema = self.schema[modelName];
-    self.models[modelName] = self.thinky.createModel(modelName, modelSchema.fields);
+  //Create models from schema
+  tasks = [];
+  var createModels = function (cb) {
+    try {
+      Object.keys(self.schema).forEach(function (modelName) {
+        var modelSchema = self.schema[modelName];
+        self.models[modelName] = self.thinky.createModel(modelName, modelSchema.fields);
+      });
+      cb(null);
+    } catch (e) {
+      cb(e);
+    }
+  };
+  tasks.push(createModels);
+  /* Create relations from relations property in model schema definition
+   * i.e: Model1.relations property
+   * relations: {
+   *   Model2: {
+   *     relation: 'belongsTo',
+   *     fieldName: 'model2',
+   *     leftKey: 'model2Id',
+   *     rightKey: 'id',
+   *     options: {}
+   *   },
+   *   Model3: {
+   *     relation: 'hasMany',
+   *     fieldName: 'model3s',
+   *     leftKey: 'id',
+   *     rightKey: 'model1Id',
+   *     options: {}
+   *   },
+   *   ...
+   * }
+   *
+   */
+  var createRelations = function (cb) {
+    try {
+      Object.keys(self.schema).forEach(function (modelName) {
+        var modelSchema = self.schema[modelName];
+        if (modelSchema.relations) {
+          var model = self.models[modelName];
+          Object.keys(modelSchema.relations).forEach(function (otherModelName){
+            var relation = modelSchema.relations[otherModelName];
+            var relType = relation.relation;
+            var OtherModel = self.models[otherModelName];
+            model[relType](OtherModel, relation.fieldName, relation.leftKey, relation.rightKey, relation.options)
+          })
+        }
+      });
+      cb(null);
+    } catch (e) {
+      cb(e);
+    }
+  };
+  tasks.push(createRelations);
+  async.series(tasks, function (err, results){
+    if (err)
+      throw err;
   });
 
   this.scServer.on('_handshake', function (socket) {
